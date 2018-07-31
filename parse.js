@@ -5,22 +5,34 @@ let cheerio = require('cheerio');
 let fs = require('fs');
 const URL = require('url').URL;
 
+// NOTE: terminal log colors
 let Reset = "\x1b[0m"
 let Underscore = "\x1b[4m"
 let FgRed = "\x1b[31m"
 let FgGreen = "\x1b[32m"
 let FgCyan = "\x1b[36m"
 
+// NOTE: used for parsing each line of file to array
+// NOTE: there are tow files, source sentence in one languge and another one in other language
 let source = []
 let target = []
 
+// NOTE: prepare variables
 let sourceFile = new URL('file:////home/gogi/School/jezikovne/project/parser/translations/Batch3a_sl.txt');
 let targetFile = new URL('file:////home/gogi/School/jezikovne/project/parser/translations/Batch3a_en.txt');
-let possibleArguments = ['succeeded', 'failed', 'both']
-let runningInterval = 100 // NOTE: in ms
-let link = 'http://localhost:3333'
-// let link = 'http://localhost:5000'
 
+// NOTE: on of this parameters is the only one possible
+// USED FOR: if you want to list translations you can take a look at succeeded,
+// USED FOR: failed or both.
+let possibleArguments = ['succeeded', 'failed', 'both']
+
+// NOTE: in order to let server breathe we setup interval for requests
+let runningInterval = 100 // NOTE: in ms
+
+// NOTE: link to backend
+let link = 'http://localhost:3333'
+
+//start - Checking parameters
 var logSucceded = false
 var logFailed = false
 if(process.argv.length == 3) {
@@ -35,26 +47,33 @@ if(process.argv.length == 3) {
     }
   }
 }
+//end - Checking parameters
 
 
+// NOTE: used for calculating amount of time used for translations and calculations
 let startTime = +new Date()
 
+// NOTE: reader for source
 let lineReaderSource = readline.createInterface({
   input: fs.createReadStream(sourceFile)
 });
 
+// NOTE: reader for target
 let lineReaderTarget = readline.createInterface({
   input: fs.createReadStream(targetFile)
 });
 
+//push each line from target to target array
 lineReaderTarget.on('line', function (line) {
   target.push(line)
 })
 
+//push each line from source to source array
 lineReaderSource.on('line', function (line) {
   source.push(line)
 })
 
+// NOTE: when file reading is finished ping api with each line
 let promise1 = new Promise((resolve, reject) => {
   lineReaderSource.on('close', (res) => {
     console.log("Reading source file:", FgGreen, 'Success', Reset);
@@ -70,16 +89,15 @@ let promise2 = new Promise((resolve, reject) => {
   })
 })
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-
+// NOTE: used for logging info
 let amountOfAlredyFinishedItems = 0
+
+//start - pinging api with post requests
 Promise.all([promise1, promise2]).then((res) => {
   console.log("_____________________________");
   console.log();
 
+  // NOTE: checking test files are same length
   if(source.length != target.length) {
     console.log('Testing source and target length:', FgRed, 'FAIL', Reset);
     console.log('Error message:', FgRed, "The length of source and target are not equal. Plese check files:");
@@ -91,10 +109,12 @@ Promise.all([promise1, promise2]).then((res) => {
     console.log('Testing source and target length:', FgGreen, 'Success', Reset);
   }
 
+  // NOTE: used spinner for live interaction with user
   let spinner = new Spinner('%s Translating sentence 0 of ' + source.length);
   spinner.setSpinnerString('|/-\\');
   spinner.start();
 
+  // NOTE: promises var is used as each request to backend
   let promises = []
   for (let i = 0; i < source.length; i++) {
     // if(i==10) {
@@ -103,10 +123,11 @@ Promise.all([promise1, promise2]).then((res) => {
     let p = new Promise((resolve, reject) => {
       let position = i;
 
+      // NOTE :setting timeout for wach call at interval*index
       setTimeout(() => {
         axios({
           method: 'POST',
-          url: link,//'https://jsonplaceholder.typicode.com/posts',//'http://localhost:5000',
+          url: link,
           withCredentials: true,
           data: {
             "source": source[position]
@@ -117,25 +138,45 @@ Promise.all([promise1, promise2]).then((res) => {
         }).then(function (response) {
           if(response.status == 200) {
             const $ = cheerio.load(response.data)
+
+            // NOTE: get text from neural monkey translated response
             let translated = $('.translation p').text()
             amountOfAlredyFinishedItems += 1
 
-            if(translated != target[i]) {
-              resolve({success: false, position: position, source: source[position], target: target[position], translated: translated})
-            }else {
-              resolve({success: true, position: position, source: source[position], target: target[position], translated: translated})
+            var translatedLine = {
+              position: position,
+              source: source[position],
+              target: target[position],
+              translated: translated
             }
+
+            if(translated != target[i]) {
+              translatedLine.success = false
+            }else {
+              translatedLine.success = false
+
+            }
+            //updating spinner
+            spinner.setSpinnerTitle('Translating sentence ' + amountOfAlredyFinishedItems + ' of ' + source.length);
+
+            resolve(translatedLine)
           }
-          // console.log(position);
-          spinner.setSpinnerTitle('Translating sentence ' + amountOfAlredyFinishedItems + ' of ' + source.length);
 
         }).catch(function (error) {
           amountOfAlredyFinishedItems += 1
+          //updating spinner
           spinner.setSpinnerTitle('Translating sentence ' + amountOfAlredyFinishedItems + ' of ' + source.length);
 
           // iterate(spinner)
 
-          resolve({success: false, position: position, source: source[position], target: target[position], translated: '', err: error})
+          resolve({
+            success: false,
+            position: position,
+            source: source[position],
+            target: target[position],
+            translated: '',
+            err: error
+          })
 
         });
       }, runningInterval*position)
@@ -145,11 +186,15 @@ Promise.all([promise1, promise2]).then((res) => {
 
   }
 
+  // NOTE: after getting all translation stop spinner and calculate %s
   Promise.all(promises).then((data) => {
+    //call it after 200ms in order to update spinner to last/max line number
     setTimeout(stopSpinner, 200, spinner, data)
   })
 
 })
+
+//end - pinging api with post requests
 
 
 function stopSpinner(spinner, data) {
@@ -182,11 +227,12 @@ function stopSpinner(spinner, data) {
   console.log('Success rate:\t\t\t', FgCyan, (succeeded/(succeeded+failed)*100) + "%", Reset);
   console.log('_____________________________');
 
+  // NOTE: in case user DOESN'T want to iterate over transitions
   if(toLog.length == 0) {
     process.exit(1)
   }
 
-
+  // NOTE: async iteration
   var index = 0
   var iterateOverChangedDocs = (arr, index) => {
     handleIteratedPromise(arr[index],() => {
